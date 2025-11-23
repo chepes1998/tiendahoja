@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Tienda de la Hoja 🍁</title>
+  
+  <!-- 1. ESTILOS (Tailwind CSS) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- 2. MAPA DE IMPORTACIONES (React + Firebase sin instalar nada) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.344.0",
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"
+      }
+    }
+  </script>
+  
+  <!-- 3. COMPILADOR BABEL -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+    .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans h-screen overflow-hidden select-none">
+  
+  <div id="root"></div>
+
+  <!-- 4. LÓGICA DE LA APLICACIÓN -->
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useMemo, memo } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { Search, ShoppingCart, Trash2, Download, RefreshCw, Archive, Leaf, Settings, X, Plus, Edit2, Save, DollarSign, AlertTriangle, Cloud, Loader, Wifi } from 'lucide-react';
+    
+    // FIREBASE IMPORTS
+    import { initializeApp } from 'firebase/app';
+    import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+    import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDocs } from 'firebase/firestore';
+
+    // =================================================================
+    // 🔑 TUS LLAVES DE FIREBASE (YA INTEGRADAS)
+    // =================================================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyBCg7bn-XbNce5fuB9JrYPXVsw50li1ySA",
+      authDomain: "tienda-hoja.firebaseapp.com",
+      projectId: "tienda-hoja",
+      storageBucket: "tienda-hoja.firebasestorage.app",
+      messagingSenderId: "750612062192",
+      appId: "1:750612062192:web:26a25fcb5013a03d494735"
+    };
+
+    // INICIALIZACIÓN DE LA NUBE
+    let app, auth, db;
+    const STORE_ID = 'sucursal-principal'; // Identificador de tu tienda en la BD
+
+    try {
+      app = initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      db = getFirestore(app);
+    } catch (e) { console.error("Error iniciando Firebase:", e); }
+
+    // --- COMPONENTE: BUSCADOR AISLADO (Anti-bug teclado) ---
+    const SearchBar = memo(({ onSearch }) => {
+      const [localText, setLocalText] = useState("");
+      useEffect(() => { const t = setTimeout(() => onSearch(localText), 400); return () => clearTimeout(t); }, [localText, onSearch]);
+      return (
+        <div className="bg-white p-3 rounded-2xl shadow-sm mb-4 border border-gray-100 sticky top-0 z-20">
+          <div className="relative">
+            <Search className="absolute left-3 top-3.5 text-gray-400" size={20} />
+            <input value={localText} onChange={e => setLocalText(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-gray-50 border-2 border-transparent rounded-xl outline-none focus:bg-white focus:border-orange-500 transition-all text-lg" placeholder="Buscar producto..." />
+            {localText && <button onClick={() => setLocalText("")} className="absolute right-3 top-3.5 text-gray-400 p-1 bg-gray-200 rounded-full"><X size={12}/></button>}
+          </div>
+        </div>
+      );
+    });
+
+    // --- COMPONENTE: MODAL DE PRODUCTO ---
+    const ProductModal = ({ p, open, close, save, del, loading }) => {
+      if (!open) return null;
+      const submit = e => { 
+        e.preventDefault(); 
+        const d = new FormData(e.target); 
+        // Stock opcional: si está vacío es 0
+        save({ id: p?.id, name: d.get('n'), price: parseFloat(d.get('p')), stock: parseInt(d.get('s')) || 0 }); 
+      };
+      return (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center pointer-events-none">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto" onClick={close} />
+          <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-6 shadow-2xl transform transition-transform pointer-events-auto animate-in slide-in-from-bottom-10">
+            <div className="flex justify-between mb-6"><h2 className="text-xl font-bold text-blue-900">{p ? '✏️ Editar' : '☁️ Nuevo'}</h2><button onClick={close} className="p-2 bg-gray-100 rounded-full"><X size={20}/></button></div>
+            <form onSubmit={submit} className="space-y-5">
+              <div><label className="block text-sm font-bold text-gray-500 mb-1">Nombre</label><input name="n" defaultValue={p?.name} className="w-full text-lg p-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-orange-500 outline-none" required autoComplete="off"/></div>
+              <div className="grid grid-cols-2 gap-4"><div><label className="text-sm font-bold text-gray-500">Precio</label><input name="p" type="number" step="0.5" defaultValue={p?.price} className="w-full text-lg p-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-orange-500 font-bold" required/></div><div><label className="text-sm font-bold text-gray-500">Stock</label><input name="s" type="number" defaultValue={p?.stock} className="w-full text-lg p-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-orange-500 font-bold text-center" placeholder="0"/></div></div>
+              <div className="flex gap-3 pt-2">{p && <button type="button" disabled={loading} onClick={() => del(p.id)} className="p-4 text-red-500 bg-red-50 rounded-xl"><Trash2/></button>}<button type="submit" disabled={loading} className="flex-1 bg-blue-600 text-white font-bold text-lg py-4 rounded-xl shadow-lg flex justify-center gap-2">{loading ? <Loader className="animate-spin"/> : <Save/>} Guardar</button></div>
+            </form>
+          </div>
+        </div>
+      );
+    };
+
+    // --- APP PRINCIPAL ---
+    const App = () => {
+      const [user, setUser] = useState(null);
+      const [view, setView] = useState('pos');
+      const [admin, setAdmin] = useState(false);
+      const [search, setSearch] = useState('');
+      const [prods, setProds] = useState([]);
+      const [sales, setSales] = useState([]);
+      const [cart, setCart] = useState([]);
+      const [pay, setPay] = useState('');
+      const [showList, setShowList] = useState(false);
+      const [editP, setEditP] = useState(null);
+      const [modal, setModal] = useState(false);
+      const [loading, setLoading] = useState(true);
+      const [confirm, setConfirm] = useState(false);
+      const [proc, setProc] = useState(false);
+
+      // 1. Conectar a Firebase (Anónimo)
+      useEffect(() => {
+        if (!auth) { setLoading(false); return; }
+        signInAnonymously(auth).catch(e => console.error("Auth error:", e));
+        return onAuthStateChanged(auth, u => { 
+          setUser(u); 
+          if(!u) setLoading(false); 
+        });
+      }, []);
+
+      // 2. Escuchar Cambios en Tiempo Real
+      useEffect(() => {
+        if (!user || !db) return;
+        
+        // Escuchar Productos
+        const unsubP = onSnapshot(collection(db, 'tiendas', STORE_ID, 'productos'), s => {
+          setProds(s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.name.localeCompare(b.name)));
+          setLoading(false);
+        });
+        
+        // Escuchar Ventas
+        const unsubS = onSnapshot(collection(db, 'tiendas', STORE_ID, 'ventas'), s => {
+          setSales(s.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+        
+        return () => { unsubP(); unsubS(); };
+      }, [user]);
+
+      // 3. Carrito (Permite vender sin stock)
+      const addCart = p => { 
+        if (navigator.vibrate) navigator.vibrate(30); 
+        setCart(c => c.find(x => x.id === p.id) ? c.map(x => x.id === p.id ? { ...x, quantity: x.quantity + 1 } : x) : [...c, { ...p, quantity: 1 }]); 
+      };
+      
+      // 4. Cobrar (Guardar en Nube)
+      const checkout = async () => {
+        const pVal = parseFloat(pay);
+        const tot = cart.reduce((a, b) => a + (b.price * b.quantity), 0);
+        if (!pVal || pVal < tot || !user) return;
+        
+        setProc(true);
+        try {
+          const batch = writeBatch(db);
+          cart.forEach(i => {
+            // Resta inventario (permite negativos)
+            batch.update(doc(db, 'tiendas', STORE_ID, 'productos', i.id), { stock: (i.stock || 0) - i.quantity });
+            // Crea venta
+            batch.set(doc(collection(db, 'tiendas', STORE_ID, 'ventas')), { 
+              name: i.name, 
+              quantitySold: i.quantity, 
+              totalRevenue: i.price * i.quantity, 
+              date: new Date().toISOString() 
+            });
+          });
+          await batch.commit();
+          setCart([]); setPay(''); setShowList(false);
+          alert(`✅ Venta Guardada\nCambio: $${(pVal - tot).toFixed(2)}`);
+        } catch (e) { alert("Error guardando: " + e.message); }
+        setProc(false);
+      };
+
+      // 5. Cerrar Corte (Borrar Ventas de Nube)
+      const closeDay = async () => {
+        if (!confirm) { setConfirm(true); setTimeout(() => setConfirm(false), 3000); return; }
+        
+        setProc(true);
+        try {
+          const snap = await getDocs(collection(db, 'tiendas', STORE_ID, 'ventas'));
+          const batch = writeBatch(db);
+          snap.docs.forEach(d => batch.delete(d.ref));
+          await batch.commit();
+          setConfirm(false);
+          alert("☁️ Corte Cerrado. Ventas reiniciadas.");
+        } catch (e) { alert("Error cerrando: " + e.message); }
+        setProc(false);
+      };
+
+      // 6. Reporte (TXT Correcto)
+      const report = () => {
+        const d = new Date();
+        const dStr = d.toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        const tot = sales.reduce((a, b) => a + b.totalRevenue, 0);
+        const com = sales.reduce((a, b) => a + b.quantitySold, 0);
+        
+        let txt = `CORTE - TIENDA DE LA HOJA 🍁\nFECHA: ${dStr.toUpperCase()}\n============================\nTOTAL VENDIDO: $${tot.toFixed(2)}\nCOMISIÓN:      $${com.toFixed(2)}\n============================\n\nDETALLE:\n`;
+        
+        if(sales.length===0) txt += "(Sin ventas)";
+        else sales.forEach(s => txt += `• ${s.name} x${s.quantitySold} ... $${s.totalRevenue.toFixed(2)}\n`);
+        
+        // BOM para acentos
+        const blob = new Blob(['\uFEFF' + txt], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `Corte_${d.getDate()}-${d.getMonth()+1}.txt`; a.click();
+      };
+
+      // 7. Guardar Producto (Nube)
+      const saveP = async (d) => {
+        if (!user) return; setProc(true);
+        try {
+          const ref = collection(db, 'tiendas', STORE_ID, 'productos');
+          d.id ? await updateDoc(doc(ref, d.id), { name: d.name, price: d.price, stock: d.stock }) : await addDoc(ref, { name: d.name, price: d.price, stock: d.stock });
+          setModal(false);
+        } catch (e) { alert(e.message); }
+        setProc(false);
+      };
+
+      const delP = async (id) => {
+        if (window.confirm("¿Borrar de la nube?")) { setProc(true); await deleteDoc(doc(db, 'tiendas', STORE_ID, 'productos', id)); setModal(false); setProc(false); }
+      };
+
+      const filtered = prods.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+      const total = cart.reduce((a, b) => a + (b.price * b.quantity), 0);
+
+      if (loading) return <div className="h-screen flex items-center justify-center bg-blue-900 text-white"><Loader className="animate-spin mr-2"/> Conectando Nube...</div>;
+
+      return (
+        <div className="flex flex-col h-full">
+          {/* HEADER */}
+          <header className="bg-blue-900 text-white p-3 shadow-lg z-30 flex justify-between shrink-0">
+            <div className="flex items-center gap-2" onClick={() => setView('pos')}>
+              <div className="bg-orange-500 p-1.5 rounded-full border-2 border-white/20"><Leaf size={20}/></div>
+              <div><h1 className="font-bold text-lg leading-none">Tienda 🍁</h1><p className="text-[10px] text-blue-200">En línea</p></div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setAdmin(!admin)} className={`px-3 py-1.5 rounded-full text-xs font-bold flex gap-1 items-center transition-all ${admin ? 'bg-orange-500' : 'bg-blue-800'}`}><Settings size={14} /> {admin ? 'ADMIN' : 'VENTA'}</button>
+              <button onClick={() => setView(view === 'pos' ? 'corte' : 'pos')} className="p-2 bg-white/10 rounded-lg">{view === 'pos' ? <Archive size={18} /> : <X size={18} />}</button>
+            </div>
+          </header>
+
+          {/* BODY */}
+          <main className="flex-1 overflow-y-auto p-3 pb-48 relative">
+            {view === 'pos' ? (
+              <>
+                <div className="flex gap-2 items-start"><div className="flex-1"><SearchBar onSearch={setSearch} /></div>{admin && <button onClick={() => { setEditP(null); setModal(true) }} className="bg-blue-600 text-white p-3 rounded-2xl shadow-sm h-[52px] w-[52px] flex justify-center items-center shrink-0"><Plus /></button>}</div>
+                
+                {prods.length === 0 && <div className="text-center py-10 opacity-50"><Cloud size={48} className="mx-auto mb-2" /><p>Nube vacía</p></div>}
+                
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {filtered.map(p => {
+                    const n = cart.find(x => x.id === p.id)?.quantity || 0;
+                    return (
+                      <div key={p.id} onClick={() => !admin && addCart(p)} className={`relative bg-white p-3 rounded-2xl shadow-sm flex flex-col justify-between min-h-[120px] transition-all ${admin ? 'border-2 border-dashed border-blue-200' : 'active:scale-95'}`}>
+                        <div><h3 className="font-bold text-blue-900 leading-tight line-clamp-2">{p.name}</h3><p className={`text-xs font-bold mt-1 ${p.stock <= 0 ? 'text-orange-500' : 'text-gray-400'}`}>{p.stock <= 0 ? `Stock: ${p.stock}` : `Stock: ${p.stock}`}</p></div>
+                        <div className="flex justify-between items-end mt-3"><span className="text-xl font-black text-gray-800">${p.price}</span>{admin ? <button onClick={(e) => { e.stopPropagation(); setEditP(p); setModal(true) }} className="p-2 bg-blue-50 text-blue-600 rounded-full"><Edit2 size={16} /></button> : n > 0 && <span className="bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded-full">{n}</span>}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="space-y-4 max-w-lg mx-auto">
+                <h2 className="text-2xl font-bold text-blue-900">Corte del Día</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-blue-500"><p className="text-xs font-bold text-gray-400 uppercase">VENTA TOTAL</p><p className="text-3xl font-black text-blue-900">${sales.reduce((a, b) => a + b.totalRevenue, 0).toFixed(2)}</p></div>
+                  <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 border-green-500"><p className="text-xs font-bold text-gray-400 uppercase">COMISIÓN</p><p className="text-3xl font-black text-green-600">${sales.reduce((a, b) => a + b.quantitySold, 0)}</p></div>
+                </div>
+                <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100"><table className="w-full text-sm"><thead className="bg-gray-50 text-gray-500"><tr><th className="p-3 text-left">Prod</th><th className="p-3">Cant</th><th className="p-3 text-right">$$</th></tr></thead><tbody className="divide-y divide-gray-100">{sales.map((s, i) => (<tr key={i}><td className="p-3 font-medium">{s.name}</td><td className="p-3 text-center text-gray-500">{s.quantitySold}</td><td className="p-3 text-right font-bold">${s.totalRevenue}</td></tr>))}</tbody></table></div>
+                <div className="flex gap-2"><button onClick={report} className="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold shadow flex justify-center gap-2"><Download /> Descargar</button><button onClick={closeDay} disabled={proc} className={`flex-1 py-3 rounded-xl font-bold shadow flex justify-center gap-2 ${confirm ? 'bg-red-600 text-white' : 'bg-red-100 text-red-600'}`}>{proc ? <Loader className="animate-spin" /> : confirm ? <>CONFIRMAR</> : <>CERRAR CORTE</>}</button></div>
+              </div>
+            )}
+          </main>
+
+          {/* FOOTER COBRO */}
+          {view === 'pos' && (
+            <div className="bg-white border-t border-gray-200 shadow-[0_-5px_30px_rgba(0,0,0,0.1)] z-30 shrink-0 pb-safe">
+              <div onClick={() => setShowList(!showList)} className="flex justify-between px-4 py-3 cursor-pointer border-b border-gray-100"><div className="flex gap-2"><div className="relative"><ShoppingCart size={24} className="text-blue-900" />{cart.length > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full animate-bounce" />}</div><p className="font-bold text-sm text-gray-700">{cart.length} Artículos</p></div><p className="text-2xl font-black text-blue-900">${total.toFixed(2)}</p></div>
+              {showList && <div className="max-h-48 overflow-y-auto bg-gray-50 p-2 space-y-1 border-b border-gray-200">{cart.map(c => (<div key={c.id} className="flex justify-between items-center bg-white p-2 rounded-lg shadow-sm"><span className="text-sm font-medium w-1/2 truncate">{c.name}</span><div className="flex items-center gap-2"><span className="text-xs text-gray-500">${c.price} x {c.quantity}</span><button onClick={() => setCart(p => p.filter(x => x.id !== c.id))} className="text-red-400 bg-red-50 p-1 rounded"><Trash2 size={16} /></button></div></div>))}</div>}
+              <div className="p-3 flex gap-3"><div className="relative w-1/3"><DollarSign size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" /><input type="number" placeholder="Pago" value={pay} onChange={e => setPay(e.target.value)} className="w-full h-12 pl-8 pr-2 bg-gray-100 rounded-xl font-bold text-lg outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 text-center" /></div><button onClick={checkout} disabled={cart.length === 0 || (parseFloat(pay) || 0) < total || proc} className={`flex-1 h-12 rounded-xl font-black text-lg shadow-lg flex flex-col justify-center items-center leading-none active:scale-95 transition-all ${cart.length > 0 && (parseFloat(pay) || 0) >= total ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-400'}`}>{proc ? <Loader className="animate-spin" /> : (parseFloat(pay) || 0) >= total && total > 0 ? (<><span>COBRAR</span><span className="text-[10px] font-medium opacity-90">Cambio: ${(parseFloat(pay) - total).toFixed(2)}</span></>) : 'COBRAR'}</button></div>
+            </div>
+          )}
+          <ProductModal p={editP} open={modal} close={() => setModal(false)} save={saveP} del={delP} loading={proc} />
+        </div>
+      );
+    };
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
