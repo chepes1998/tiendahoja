@@ -1,44 +1,37 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Tienda de la Hoja ⚡</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Tienda V19 🛠️</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    body {
-      -webkit-tap-highlight-color: transparent;
-      overscroll-behavior-y: none;
-      touch-action: manipulation;
-      overflow: hidden;
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.344.0",
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"
+      }
     }
-    .toast {
-      animation: slideUp 2s forwards;
-    }
-    @keyframes slideUp {
-      0% { transform: translateY(20px); opacity: 0; }
-      20% { opacity: 1; }
-      80% { opacity: 1; }
-      100% { transform: translateY(0); opacity: 0; }
-    }
-  </style>
+  </script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body class="bg-gray-100 font-sans h-screen overflow-hidden">
-  <div id="app" class="h-full flex flex-col">
-    <!-- Cargando... -->
-    <div class="h-screen flex flex-col items-center justify-center bg-blue-900 text-white">
-      <div class="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin mb-4"></div>
-      <p>Iniciando Tienda de la Hoja...</p>
-    </div>
-  </div>
+<body class="bg-gray-100 text-gray-900 font-sans h-screen overflow-hidden select-none">
+  <div id="root"></div>
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useMemo } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { Search, ShoppingCart, Trash2, Download, RefreshCw, Archive, Leaf, Settings, X, Plus, Edit2, Save, DollarSign, Loader, Wifi, AlertTriangle } from 'lucide-react';
+    import { initializeApp } from 'firebase/app';
+    import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+    import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDocs } from 'firebase/firestore';
 
-  <!-- Firebase desde CDN -->
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-
-  <script>
-    // ================== CONFIGURACIÓN ==================
+    // =================================================================
+    // 👇 PEGA TUS LLAVES AQUÍ 👇
+    // =================================================================
     const firebaseConfig = {
       apiKey: "AIzaSyBCg7bn-XbNce5fuB9JrYPXVsw50li1ySA",
       authDomain: "tienda-hoja.firebaseapp.com",
@@ -48,280 +41,182 @@
       appId: "1:750612062192:web:26a25fcb5013a03d494735"
     };
 
-    // ================== INICIALIZAR FIREBASE ==================
-    let app, auth, db;
-    let user = null;
+    // Inicialización
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
     const STORE_ID = 'sucursal-principal';
 
-    try {
-      app = firebase.initializeApp(firebaseConfig);
-      auth = firebase.auth();
-      db = firebase.firestore();
-      // Intentar persistencia offline (seguro)
-      if (typeof db.enablePersistence === 'function') {
-        db.enablePersistence().catch(() => {});
-      }
-    } catch (e) {
-      console.error("Error al iniciar Firebase:", e);
-      showError("Error al iniciar la app. Verifica tu conexión.");
-      return;
-    }
-
-    // ================== UTILIDADES ==================
-    function showError(msg) {
-      document.getElementById('app').innerHTML = `
-        <div class="h-screen flex flex-col items-center justify-center bg-red-50 p-4 text-center">
-          <div class="text-red-600 text-5xl mb-4">⚠️</div>
-          <h2 class="text-xl font-bold text-gray-800 mb-2">Error</h2>
-          <p class="text-gray-600 mb-6">${msg}</p>
-          <button onclick="location.reload()" class="px-4 py-2 bg-blue-600 text-white rounded-lg">Reintentar</button>
+    // --- COMPONENTE DE DIAGNÓSTICO ---
+    const StatusBadge = ({ status, error }) => {
+      if (error) return <div className="bg-red-600 text-white px-2 py-1 text-xs font-bold w-full text-center">ERROR: {error}</div>;
+      return (
+        <div className={`px-2 py-1 text-xs font-bold w-full text-center flex justify-center items-center gap-2 ${status === 'connected' ? 'bg-green-600 text-white' : 'bg-yellow-500 text-black'}`}>
+          {status === 'connected' ? <Wifi size={12}/> : <Loader size={12} className="animate-spin"/>}
+          {status === 'connected' ? 'CONECTADO A NUBE' : 'CONECTANDO...'}
         </div>
-      `;
-    }
-
-    function notify(msg, type = 'success') {
-      const div = document.createElement('div');
-      div.className = 'toast fixed bottom-4 left-4 right-4 bg-gray-900 text-white p-3 rounded-lg z-50';
-      div.textContent = msg;
-      document.body.appendChild(div);
-      setTimeout(() => div.remove(), 2000);
-    }
-
-    function format(n) {
-      return n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    }
-
-    // ================== ESTADO ==================
-    let view = 'pos'; // 'pos' o 'corte'
-    let admin = false;
-    let search = '';
-    let productos = [];
-    let ventas = [];
-    let carrito = [];
-    let pago = '';
-
-    // ================== RENDER ==================
-    function render() {
-      const total = carrito.reduce((a, b) => a + (b.price * b.quantity), 0);
-      const filtered = productos.filter(p =>
-        p.name.toLowerCase().includes(search.toLowerCase())
       );
+    };
 
-      const html = `
-        <header class="bg-blue-900 text-white p-3 flex justify-between items-center">
-          <div class="flex items-center gap-2">
-            <div class="bg-orange-500 w-6 h-6 rounded-full flex items-center justify-center">
-              <span class="text-xs">🍁</span>
-            </div>
-            <div>
-              <h1 class="font-bold">Tienda de la Hoja</h1>
-              <p class="text-xs opacity-80">Conectado</p>
-            </div>
-          </div>
-          <div class="flex gap-2">
-            <button onclick="location.reload()" class="p-2 bg-blue-800 rounded">↻</button>
-            <button onclick="toggleAdmin()" class="px-2 py-1 text-xs font-bold ${admin ? 'bg-orange-500' : 'bg-blue-800'}">
-              ${admin ? 'ADMIN' : 'VENTA'}
+    const App = () => {
+      const [user, setUser] = useState(null);
+      const [view, setView] = useState('pos');
+      const [admin, setAdmin] = useState(false);
+      const [search, setSearch] = useState('');
+      const [prods, setProds] = useState([]);
+      const [cart, setCart] = useState([]);
+      const [pay, setPay] = useState('');
+      const [status, setStatus] = useState('connecting');
+      const [errorMsg, setErrorMsg] = useState('');
+      
+      // Modal
+      const [modalOpen, setModalOpen] = useState(false);
+      const [editP, setEditP] = useState(null);
+      const [processing, setProcessing] = useState(false);
+
+      // 1. Autenticación
+      useEffect(() => {
+        signInAnonymously(auth).catch(e => setErrorMsg("Auth: " + e.message));
+        return onAuthStateChanged(auth, u => {
+          setUser(u);
+          if (u) setStatus('connected');
+        });
+      }, []);
+
+      // 2. Escuchar Productos (Lectura)
+      useEffect(() => {
+        if (!user) return;
+        const unsub = onSnapshot(collection(db, 'tiendas', STORE_ID, 'productos'), 
+          (snap) => {
+            const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            setProds(data.sort((a,b) => a.name.localeCompare(b.name)));
+          },
+          (err) => {
+            console.error(err);
+            setErrorMsg("Error Lectura: " + err.message);
+            if(err.message.includes("permission")) setErrorMsg("ERROR DE PERMISOS: Revisa las Reglas en Firebase");
+          }
+        );
+        return () => unsub();
+      }, [user]);
+
+      // 3. Guardar Producto (Escritura)
+      const saveProduct = async (e) => {
+        e.preventDefault();
+        setProcessing(true);
+        const form = new FormData(e.target);
+        const data = {
+          name: form.get('n'),
+          price: parseFloat(form.get('p')),
+          stock: parseInt(form.get('s')) || 0
+        };
+
+        try {
+          const colRef = collection(db, 'tiendas', STORE_ID, 'productos');
+          if (editP) {
+            await updateDoc(doc(colRef, editP.id), data);
+          } else {
+            await addDoc(colRef, data);
+          }
+          setModalOpen(false);
+          alert("✅ Guardado correctamente");
+        } catch (err) {
+          console.error(err);
+          alert("❌ ERROR AL GUARDAR:\n" + err.message + "\n\nVerifica tus reglas en Firebase.");
+        }
+        setProcessing(false);
+      };
+
+      // 4. Carrito
+      const addCart = (p) => setCart(prev => {
+        const ex = prev.find(x => x.id === p.id);
+        return ex ? prev.map(x => x.id === p.id ? {...x, q: x.q + 1} : x) : [...prev, {...p, q: 1}];
+      });
+
+      const total = cart.reduce((a,b) => a + (b.price * b.q), 0);
+      const filtered = prods.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+
+      return (
+        <div className="flex flex-col h-full">
+          <StatusBadge status={status} error={errorMsg} />
+          
+          <div className="bg-blue-900 p-3 text-white flex justify-between items-center shadow-md shrink-0">
+            <h1 className="font-bold text-xl">Tienda Hoja 🍁</h1>
+            <button onClick={() => setAdmin(!admin)} className={`px-3 py-1 rounded text-xs font-bold ${admin ? 'bg-orange-500' : 'bg-blue-700'}`}>
+              {admin ? 'MODO ADMIN' : 'MODO VENTA'}
             </button>
-            <button onclick="toggleView()" class="p-2 bg-blue-800 rounded">${view === 'pos' ? '📊' : '←'}</button>
           </div>
-        </header>
 
-        <main class="flex-1 overflow-y-auto p-3 pb-32">
-          ${view === 'pos' ? renderPOS(filtered) : renderCorte()}
-        </main>
-
-        ${view === 'pos' ? `
-          <div class="bg-white border-t p-3 shadow-lg">
-            <div class="flex justify-between mb-2">
-              <span class="font-medium">${carrito.length} ítems</span>
-              <span class="font-bold text-blue-900">$${format(total)}</span>
+          <div className="flex-1 overflow-y-auto p-3 relative">
+            <div className="flex gap-2 mb-4">
+              <input 
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Buscar..." 
+                className="flex-1 p-3 rounded-xl border border-gray-300 text-lg"
+              />
+              {admin && (
+                <button onClick={() => { setEditP(null); setModalOpen(true); }} className="bg-blue-600 text-white p-3 rounded-xl shadow-lg">
+                  <Plus size={24}/>
+                </button>
+              )}
             </div>
-            <div class="flex gap-2">
-              <input type="number" placeholder="Pago" value="${pago}" 
-                oninput="pago = this.value; render();" 
-                class="flex-1 p-2 border rounded text-lg text-center" />
-              <button onclick="checkout()" 
-                class="flex-1 bg-green-600 text-white font-bold rounded ${total === 0 || parseFloat(pago) < total ? 'opacity-50' : ''}"
-                ${total === 0 || parseFloat(pago) < total ? 'disabled' : ''}>
-                COBRAR
-              </button>
-            </div>
-          </div>
-        ` : ''}
-      `;
 
-      document.getElementById('app').innerHTML = html;
-      attachEventListeners();
-    }
-
-    function renderPOS(productos) {
-      return `
-        <div class="mb-3">
-          <input type="text" placeholder="Buscar..." value="${search}" 
-            oninput="search = this.value; render();"
-            class="w-full p-2 border rounded" />
-        </div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          ${productos.map(p => {
-            const enCarrito = carrito.find(x => x.id === p.id);
-            return `
-              <div class="bg-white p-3 rounded shadow ${admin ? '' : 'cursor-pointer'}" 
-                onclick="${admin ? '' : `addToCart('${p.id}')`}"
-                data-id="${p.id}">
-                <h3 class="font-bold text-sm">${p.name}</h3>
-                <p class="text-xs text-gray-500">Stock: ${p.stock || 0}</p>
-                <div class="flex justify-between items-end mt-1">
-                  <span class="font-bold text-blue-900">$${format(p.price)}</span>
-                  ${enCarrito ? `<span class="bg-orange-500 text-white text-xs px-2 rounded">${enCarrito.quantity}</span>` : ''}
+            <div className="grid grid-cols-2 gap-3">
+              {filtered.map(p => (
+                <div key={p.id} onClick={() => !admin && addCart(p)} className="bg-white p-3 rounded-xl shadow border-2 border-transparent active:border-orange-500 transition-all">
+                  <div className="font-bold text-blue-900 truncate">{p.name}</div>
+                  <div className="text-xs text-gray-500 mb-2">Stock: {p.stock}</div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xl font-black">${p.price}</span>
+                    {admin && <button onClick={(e) => { e.stopPropagation(); setEditP(p); setModalOpen(true); }} className="p-1 bg-gray-100 rounded"><Edit2 size={16}/></button>}
+                  </div>
                 </div>
+              ))}
+            </div>
+          </div>
+
+          {/* CARRITO SIMPLE */}
+          {!admin && (
+            <div className="bg-white border-t p-3 shadow-lg shrink-0">
+              <div className="flex justify-between items-center mb-3">
+                <span className="font-bold text-gray-600">{cart.length} arts.</span>
+                <span className="text-2xl font-black text-blue-900">${total}</span>
               </div>
-            `;
-          }).join('')}
-        </div>
-      `;
-    }
-
-    function renderCorte() {
-      const totalVentas = ventas.reduce((a, b) => a + b.totalRevenue, 0);
-      const comision = ventas.reduce((a, b) => a + b.quantitySold, 0);
-      return `
-        <div class="max-w-md mx-auto">
-          <h2 class="text-xl font-bold mb-4">Corte del Día</h2>
-          <div class="grid grid-cols-2 gap-3 mb-4">
-            <div class="bg-white p-3 rounded shadow">
-              <p class="text-xs text-gray-500">TOTAL</p>
-              <p class="font-bold text-blue-900 text-lg">$${format(totalVentas)}</p>
+              <div className="flex gap-2">
+                <button onClick={() => setCart([])} className="bg-red-100 text-red-600 p-3 rounded-xl"><Trash2/></button>
+                <button className="flex-1 bg-green-600 text-white font-bold rounded-xl shadow-lg">COBRAR</button>
+              </div>
             </div>
-            <div class="bg-white p-3 rounded shadow">
-              <p class="text-xs text-gray-500">COMISIÓN</p>
-              <p class="font-bold text-green-600 text-lg">$${format(comision)}</p>
+          )}
+
+          {/* MODAL PRODUCTO */}
+          {modalOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl">
+                <h2 className="text-xl font-bold mb-4">{editP ? 'Editar' : 'Nuevo'} Producto</h2>
+                <form onSubmit={saveProduct} className="space-y-4">
+                  <div><label className="text-xs font-bold text-gray-500">Nombre</label><input name="n" defaultValue={editP?.name} className="w-full p-2 border rounded text-lg" required autoFocus/></div>
+                  <div className="flex gap-2">
+                    <div className="flex-1"><label className="text-xs font-bold text-gray-500">Precio</label><input name="p" type="number" step="0.5" defaultValue={editP?.price} className="w-full p-2 border rounded text-lg font-bold" required/></div>
+                    <div className="flex-1"><label className="text-xs font-bold text-gray-500">Stock</label><input name="s" type="number" defaultValue={editP?.stock} className="w-full p-2 border rounded text-lg text-center"/></div>
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button type="button" onClick={() => setModalOpen(false)} className="flex-1 p-3 bg-gray-100 rounded-xl font-bold">Cancelar</button>
+                    <button type="submit" disabled={processing} className="flex-1 p-3 bg-blue-600 text-white rounded-xl font-bold flex justify-center">
+                      {processing ? <Loader className="animate-spin"/> : 'Guardar'}
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
-          </div>
-          <button onclick="downloadCorte()" class="w-full bg-green-600 text-white py-2 rounded mb-2">Descargar</button>
-          <button onclick="closeDay()" class="w-full bg-red-600 text-white py-2 rounded">Cerrar Corte</button>
+          )}
         </div>
-      `;
-    }
-
-    function attachEventListeners() {
-      // Ya no necesitamos listeners complejos porque usamos onclick directo
-    }
-
-    // ================== FUNCIONES ==================
-    window.toggleAdmin = () => { admin = !admin; render(); };
-    window.toggleView = () => { view = view === 'pos' ? 'corte' : 'pos'; render(); };
-
-    window.addToCart = (id) => {
-      const prod = productos.find(p => p.id === id);
-      if (!prod) return;
-      const exists = carrito.find(x => x.id === id);
-      if (exists) exists.quantity++;
-      else carrito.push({ ...prod, quantity: 1 });
-      notify(`${prod.name} agregado`);
-      render();
+      );
     };
 
-    window.checkout = async () => {
-      const pVal = parseFloat(pago);
-      const total = carrito.reduce((a, b) => a + (b.price * b.quantity), 0);
-      if (!pVal || pVal < total) return;
-
-      const saleData = [...carrito];
-      carrito = []; pago = '';
-      render();
-      notify(`Cobrado: $${format(total)} | Cambio: $${format(pVal - total)}`);
-
-      try {
-        const batch = db.batch();
-        saleData.forEach(item => {
-          const prodRef = db.collection('tiendas').doc(STORE_ID).collection('productos').doc(item.id);
-          batch.update(prodRef, { stock: firebase.firestore.FieldValue.increment(-item.quantity) });
-          const ventaRef = db.collection('tiendas').doc(STORE_ID).collection('ventas').doc();
-          batch.set(ventaRef, {
-            name: item.name,
-            quantitySold: item.quantity,
-            totalRevenue: item.price * item.quantity,
-            date: new Date().toISOString()
-          });
-        });
-        await batch.commit();
-      } catch (err) {
-        console.error("Error en venta:", err);
-        notify("Venta no guardada. Reintentando...", "error");
-      }
-    };
-
-    window.downloadCorte = () => {
-      const d = new Date();
-      let text = `CORTE ${d.toLocaleDateString()}\n`;
-      text += `TOTAL: $${ventas.reduce((a, b) => a + b.totalRevenue, 0)}\n`;
-      text += `VENTAS:\n`;
-      ventas.forEach(v => text += `${v.name} x${v.quantitySold} = $${v.totalRevenue}\n`);
-      const blob = new Blob([text], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `corte-${d.toISOString().split('T')[0]}.txt`;
-      a.click();
-      URL.revokeObjectURL(url);
-    };
-
-    window.closeDay = async () => {
-      if (!confirm("¿Cerrar corte? Se borrarán las ventas.")) return;
-      try {
-        const ventasSnap = await db.collection('tiendas').doc(STORE_ID).collection('ventas').get();
-        const batch = db.batch();
-        ventasSnap.docs.forEach(doc => batch.delete(doc.ref));
-        await batch.commit();
-        notify("Corte cerrado");
-        render();
-      } catch (err) {
-        notify("Error al cerrar corte", "error");
-      }
-    };
-
-    // ================== INICIALIZAR ==================
-    auth.signInAnonymously().catch(err => {
-      console.error("Error login:", err);
-      showError("No se pudo iniciar sesión. Revisa tu conexión.");
-    });
-
-    auth.onAuthStateChanged(u => {
-      if (!u) return;
-      user = u;
-
-      // Escuchar productos
-      db.collection('tiendas').doc(STORE_ID).collection('productos')
-        .onSnapshot(snap => {
-          productos = [];
-          snap.forEach(doc => productos.push({ id: doc.id, ...doc.data() }));
-          productos.sort((a, b) => a.name.localeCompare(b.name));
-          render();
-        }, err => {
-          console.error("Error productos:", err);
-          showError("No se pudieron cargar los productos.");
-        });
-
-      // Escuchar ventas
-      db.collection('tiendas').doc(STORE_ID).collection('ventas')
-        .onSnapshot(snap => {
-          ventas = [];
-          snap.forEach(doc => ventas.push(doc.data()));
-          if (view === 'corte') render();
-        });
-    });
-
-    // Evitar que la app se quede en blanco
-    setTimeout(() => {
-      if (!user) {
-        document.getElementById('app').innerHTML = `
-          <div class="h-screen flex items-center justify-center bg-gray-100 p-4 text-center">
-            <p class="text-gray-600">Conectando con Firebase...</p>
-          </div>
-        `;
-      }
-    }, 3000);
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
   </script>
 </body>
 </html>
