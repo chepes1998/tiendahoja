@@ -8,7 +8,7 @@
   <!-- Estilos -->
   <script src="https://cdn.tailwindcss.com"></script>
   
-  <!-- Detector de Errores (Pantalla Blanca) -->
+  <!-- Detector de Errores -->
   <script>
     window.onerror = function(msg, url, line) {
       const root = document.getElementById('root');
@@ -61,7 +61,7 @@
     import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDocs } from 'firebase/firestore';
 
     // =================================================================
-    // TUS LLAVES DE FIREBASE (YA INTEGRADAS)
+    // TUS LLAVES DE FIREBASE (YA INTEGRADA)
     // =================================================================
     const firebaseConfig = {
       apiKey: "AIzaSyBCg7bn-XbNce5fuB9JrYPXVsw50li1ySA",
@@ -84,11 +84,14 @@
     // --- COMPONENTES ---
 
     const ToastContainer = ({ messages }) => (
-      <div className="fixed top-4 left-0 right-0 flex flex-col items-center gap-2 pointer-events-none z-[70] px-4">
+      <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-4 pointer-events-none z-[80] w-full px-4">
         {messages.map(m => (
-          <div key={m.id} className={`fade-in px-4 py-2 rounded-full shadow-xl flex items-center gap-2 text-sm font-bold backdrop-blur-md bg-opacity-95 text-white ${m.type==='error'?'bg-red-600':'bg-gray-900'}`}>
-            {m.type === 'success' ? <CheckCircle size={16} className="text-green-400"/> : <AlertCircle size={16} className="text-white"/>}
-            {m.text}
+          <div key={m.id} className={`fade-in px-6 py-4 rounded-2xl shadow-2xl flex flex-col items-center text-center gap-2 backdrop-blur-md border-2 ${m.type==='error' ? 'bg-red-900/90 border-red-500 text-white' : 'bg-gray-900/95 border-green-500 text-white'}`}>
+            <div className="flex items-center gap-2">
+              {m.type === 'success' ? <CheckCircle size={32} className="text-green-400"/> : <AlertCircle size={32} className="text-red-400"/>}
+              <span className="text-lg font-bold uppercase tracking-wide">{m.type === 'success' ? 'Éxito' : 'Atención'}</span>
+            </div>
+            <span className="text-3xl font-black leading-tight" style={{textShadow: '0 2px 4px rgba(0,0,0,0.5)'}}>{m.text}</span>
           </div>
         ))}
       </div>
@@ -169,7 +172,8 @@
       const notify = (text, type = 'success') => {
         const id = Date.now();
         setToasts(p => [...p, { id, text, type }]);
-        setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000);
+        // Aumentamos el tiempo a 4 segundos para leer bien
+        setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 4000);
       };
 
       // 1. Conexión
@@ -199,7 +203,7 @@
           const ex = c.find(x => x.id === p.id);
           return ex ? c.map(x => x.id === p.id ? { ...x, q: x.q + 1 } : x) : [...c, { ...p, q: 1 }];
         });
-        notify(`${p.name} agregado`);
+        // notify(`${p.name} agregado`); // Quitamos noti al agregar para no saturar
       };
 
       const checkout = () => {
@@ -209,7 +213,9 @@
 
         const saleData = [...cart];
         setCart([]); setPay(''); setShowList(false);
-        notify(`Cobrado: $${tot} | Cambio: $${(pVal - tot).toFixed(2)}`);
+        
+        // NOTIFICACIÓN GIGANTE DEL CAMBIO
+        notify(`CAMBIO: $${(pVal - tot).toFixed(2)}`, "success");
 
         const batch = writeBatch(db);
         saleData.forEach(i => {
@@ -221,30 +227,19 @@
         batch.commit().catch(e => notify("Error guardando venta", "error"));
       };
 
-      // AQUÍ ESTÁ EL ARREGLO DEL GUARDADO
       const saveP = async (d) => {
         if (!user) return notify("No hay conexión", "error");
         setProc(true);
         try {
           const ref = collection(db, 'tiendas', STORE_ID, 'productos');
-          
-          // Limpiamos el objeto para asegurarnos de no mandar 'undefined'
-          const cleanData = {
-            name: d.name,
-            price: d.price,
-            stock: d.stock
-          };
-
-          if (d.id) {
-            await updateDoc(doc(ref, d.id), cleanData);
-          } else {
-            await addDoc(ref, cleanData);
-          }
+          const data = { name: d.name, price: d.price, stock: d.stock };
+          if (d.id) await updateDoc(doc(ref, d.id), data);
+          else await addDoc(ref, data);
           setModal(false);
-          notify("✅ Producto Guardado");
+          notify("Guardado Correctamente");
         } catch (e) {
           console.error(e);
-          notify("❌ Error: " + e.message, "error");
+          notify("Error al guardar", "error");
         }
         setProc(false);
       };
@@ -254,7 +249,7 @@
         try {
           await deleteDoc(doc(db, 'tiendas', STORE_ID, 'productos', id));
           setModal(false);
-          notify("Producto eliminado");
+          notify("Producto Eliminado");
         } catch (e) { notify("Error al borrar", "error"); }
         setProc(false);
       };
@@ -272,14 +267,13 @@
         } catch(e) { notify("Error cerrando", "error"); }
       };
 
-      // REPORTE MEJORADO CON COMISIÓN
       const download = () => {
         const d = new Date();
         const dStr = d.toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
         const timeStr = d.toLocaleTimeString('es-MX');
         
         const tot = sales.reduce((a, b) => a + b.totalRevenue, 0);
-        const com = sales.reduce((a, b) => a + b.quantitySold, 0); // $1 por producto
+        const com = sales.reduce((a, b) => a + b.quantitySold, 0);
         
         let t = `=== CORTE TIENDA DE LA HOJA ===\n`;
         t += `FECHA: ${dStr.toUpperCase()}\n`;
