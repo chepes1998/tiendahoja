@@ -39,10 +39,10 @@
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useMemo, memo } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Search, ShoppingCart, Trash2, Download, RefreshCw, Archive, Leaf, Settings, X, Plus, Edit2, Save, DollarSign, Cloud, Loader, WifiOff, CheckCircle, AlertCircle, RotateCcw, ChevronUp, ChevronDown } from 'lucide-react';
+    import { Search, ShoppingCart, Trash2, Download, RefreshCw, Archive, Leaf, Settings, X, Plus, Edit2, Save, DollarSign, Cloud, Loader, WifiOff, CheckCircle, AlertCircle, RotateCcw, ChevronUp, ChevronDown, Candy } from 'lucide-react';
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-    import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDocs } from 'firebase/firestore';
+    import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDocs, enableIndexedDbPersistence } from 'firebase/firestore';
 
     // =================================================================
     // TUS LLAVES DE FIREBASE
@@ -93,12 +93,20 @@
     const ProductCard = memo(({ p, onClick, onEdit, isAdmin, inCart }) => {
       const colorClass = useMemo(() => getColor(p.name), [p.name]);
       const initials = p.name.substring(0, 2).toUpperCase();
+      const isCandy = p.category === 'dulceria';
 
       return (
         <div onClick={onClick} className="bg-white rounded-xl shadow-sm overflow-hidden flex flex-col active:scale-95 transition-transform relative h-28 border border-gray-100">
           <div className={`h-16 ${colorClass} flex items-center justify-center relative`}>
             <span className="text-white text-2xl font-black tracking-tighter opacity-90">{initials}</span>
             
+            {/* Icono de Dulce si es dulcería */}
+            {isCandy && (
+              <div className="absolute top-1 left-1 bg-white/20 p-1 rounded-full" title="Dulcería (Sin Comisión)">
+                <Candy size={12} className="text-white"/>
+              </div>
+            )}
+
             {/* Botón Editar (Solo Admin) */}
             {isAdmin && (
               <button 
@@ -141,7 +149,8 @@
           id: p?.id, 
           name: d.get('n'), 
           price: isNaN(priceVal) ? 0 : priceVal, 
-          stock: isNaN(stockVal) ? 0 : stockVal 
+          stock: isNaN(stockVal) ? 0 : stockVal,
+          category: d.get('cat') // Guardamos la categoría
         }); 
       };
 
@@ -163,6 +172,21 @@
               <button onClick={close} className="p-2 bg-gray-100 rounded-full"><X size={18}/></button>
             </div>
             <form onSubmit={submit} className="space-y-3">
+              {/* Selector de Categoría */}
+              <div className="bg-gray-50 p-2 rounded-lg border border-gray-200">
+                <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Tipo de Producto</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="cat" value="general" defaultChecked={!p?.category || p?.category === 'general'} className="accent-blue-600 w-4 h-4"/>
+                    <span className="text-sm font-bold text-gray-700">Abarrotes (Comisión)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="cat" value="dulceria" defaultChecked={p?.category === 'dulceria'} className="accent-pink-500 w-4 h-4"/>
+                    <span className="text-sm font-bold text-pink-600 flex items-center gap-1"><Candy size={12}/> Dulcería (Sin Com.)</span>
+                  </label>
+                </div>
+              </div>
+
               <div>
                 <label className="text-[10px] font-bold text-gray-500 uppercase">Nombre</label>
                 <input name="n" defaultValue={p?.name} className="w-full text-lg p-2 bg-gray-100 rounded-lg font-bold outline-none focus:ring-2 focus:ring-blue-500" required autoComplete="off" autoFocus/>
@@ -259,8 +283,14 @@
         const batch = writeBatch(db);
         saleData.forEach(i => {
           batch.update(doc(db, 'tiendas', STORE_ID, 'productos', i.id), { stock: (i.stock || 0) - i.q });
+          
+          // Guardamos la categoría en la venta para saber si cobra comisión o no
           batch.set(doc(collection(db, 'tiendas', STORE_ID, 'ventas')), { 
-            name: i.name, quantitySold: i.q, totalRevenue: i.price * i.q, date: new Date().toISOString() 
+            name: i.name, 
+            quantitySold: i.q, 
+            totalRevenue: i.price * i.q, 
+            category: i.category || 'general', // Guardamos la categoría
+            date: new Date().toISOString() 
           });
         });
         batch.commit().catch(e => notify("Error guardando", "error"));
@@ -271,7 +301,8 @@
         setProc(true);
         try {
           const ref = collection(db, 'tiendas', STORE_ID, 'productos');
-          const data = { name: d.name, price: d.price, stock: d.stock };
+          // Guardamos la categoría también
+          const data = { name: d.name, price: d.price, stock: d.stock, category: d.category };
           if (d.id) await updateDoc(doc(ref, d.id), data);
           else await addDoc(ref, data);
           setModal(false);
@@ -306,15 +337,28 @@
       const download = () => {
         const d = new Date();
         const tot = sales.reduce((a, b) => a + b.totalRevenue, 0);
-        const com = sales.reduce((a, b) => a + b.quantitySold, 0);
-        let t = `CORTE TIENDA HOJA\nFECHA: ${d.toLocaleDateString()}\n----------------\nTOTAL: $${tot.toFixed(2)}\nCOMISIÓN: $${com.toFixed(2)}\n----------------\n`;
-        sales.forEach(s => t += `${s.name} (x${s.quantitySold}) .. $${s.totalRevenue}\n`);
+        // Solo sumamos comisión si NO es dulcería
+        const com = sales.reduce((a, b) => a + (b.category === 'dulceria' ? 0 : b.quantitySold), 0);
+        
+        let t = `CORTE TIENDA HOJA\nFECHA: ${d.toLocaleDateString()}\n----------------\nTOTAL VENDIDO: $${tot.toFixed(2)}\nCOMISIÓN: $${com.toFixed(2)}\n----------------\nDETALLES:\n`;
+        
+        sales.forEach(s => {
+            const tipo = s.category === 'dulceria' ? '(DULCE)' : '';
+            t += `• ${s.name} ${tipo} x${s.quantitySold} .. $${s.totalRevenue}\n`;
+        });
+        
         const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\uFEFF'+t], {type:'text/plain;charset=utf-8'})); a.download = `Corte.txt`; a.click();
       };
 
       const filtered = prods.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
       const total = cart.reduce((a, b) => a + (b.price * b.q), 0);
       const change = pay ? parseFloat(pay) - total : 0;
+      
+      // Cálculo de Comisión para el Dashboard (Excluyendo dulcería)
+      const totalCommission = sales.reduce((acc, sale) => {
+          if (sale.category === 'dulceria') return acc; // Si es dulce, no suma comisión
+          return acc + sale.quantitySold; // Si es abarrotes, suma 1 por producto
+      }, 0);
 
       if (!user) return <div className="h-screen flex items-center justify-center bg-blue-900 text-white"><Loader className="animate-spin"/></div>;
 
@@ -358,7 +402,6 @@
                         <ProductCard 
                           key={p.id} 
                           p={p} 
-                          // CORRECCIÓN AQUÍ: Ahora el botón del lápiz sí abrirá el modal
                           onEdit={(prod) => { setEditP(prod); setModal(true); }} 
                           isAdmin={admin} 
                           inCart={inCart}
@@ -373,9 +416,10 @@
                   <h2 className="text-2xl font-bold text-slate-800">Corte del Día</h2>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-blue-500"><p className="text-xs font-bold text-gray-400">TOTAL</p><p className="text-2xl font-black text-slate-900">${sales.reduce((a, b) => a + b.totalRevenue, 0).toFixed(2)}</p></div>
-                    <div className="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-green-500"><p className="text-xs font-bold text-gray-400">COMISIÓN</p><p className="text-2xl font-black text-green-600">${sales.reduce((a, b) => a + b.quantitySold, 0)}</p></div>
+                    {/* Aquí usamos el cálculo especial de comisión */}
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-green-500"><p className="text-xs font-bold text-gray-400">COMISIÓN</p><p className="text-2xl font-black text-green-600">${totalCommission}</p></div>
                   </div>
-                  <div className="bg-white rounded-2xl shadow overflow-hidden"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">Prod</th><th className="p-3 text-center">Cant</th><th className="p-3 text-right">$$</th></tr></thead><tbody>{sales.map((s,i)=>(<tr key={i} className="border-t"><td className="p-3">{s.name}</td><td className="p-3 text-center">{s.quantitySold}</td><td className="p-3 text-right font-bold">${s.totalRevenue}</td></tr>))}</tbody></table></div>
+                  <div className="bg-white rounded-2xl shadow overflow-hidden"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">Prod</th><th className="p-3 text-center">Cant</th><th className="p-3 text-right">$$</th></tr></thead><tbody>{sales.map((s,i)=>(<tr key={i} className="border-t"><td className="p-3">{s.name} {s.category==='dulceria' && '🍬'}</td><td className="p-3 text-center">{s.quantitySold}</td><td className="p-3 text-right font-bold">${s.totalRevenue}</td></tr>))}</tbody></table></div>
                   <div className="flex gap-2">
                     <button onClick={download} className="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold shadow active:scale-95">Descargar</button>
                     <button onClick={closeDay} className={`flex-1 py-3 rounded-xl font-bold shadow active:scale-95 transition-all ${confirmClose ? 'bg-red-600 text-white' : 'bg-red-100 text-red-600'}`}>{confirmClose ? '¿CONFIRMAR?' : 'Cerrar Corte'}</button>
