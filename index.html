@@ -39,7 +39,7 @@
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useMemo, memo } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Search, ShoppingCart, Trash2, Download, RefreshCw, Archive, Leaf, Settings, X, Plus, Edit2, Save, DollarSign, Cloud, Loader, WifiOff, CheckCircle, AlertCircle, RotateCcw, ChevronUp, ChevronDown, Candy } from 'lucide-react';
+    import { Search, ShoppingCart, Trash2, Download, RefreshCw, Archive, Leaf, Settings, X, Plus, Edit2, Save, DollarSign, Cloud, Loader, WifiOff, CheckCircle, AlertCircle, RotateCcw, ChevronUp, ChevronDown, Candy, Wheat } from 'lucide-react';
     import { initializeApp } from 'firebase/app';
     import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
     import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDocs, enableIndexedDbPersistence } from 'firebase/firestore';
@@ -94,20 +94,26 @@
       const colorClass = useMemo(() => getColor(p.name), [p.name]);
       const initials = p.name.substring(0, 2).toUpperCase();
       const isCandy = p.category === 'dulceria';
+      const isBulk = p.category === 'granel';
 
       return (
         <div onClick={onClick} className="bg-white rounded-xl shadow-sm overflow-hidden flex flex-col active:scale-95 transition-transform relative h-28 border border-gray-100">
           <div className={`h-16 ${colorClass} flex items-center justify-center relative`}>
             <span className="text-white text-2xl font-black tracking-tighter opacity-90">{initials}</span>
             
-            {/* Icono de Dulce si es dulcería */}
+            {/* Iconos de Categoría */}
             {isCandy && (
-              <div className="absolute top-1 left-1 bg-white/20 p-1 rounded-full" title="Dulcería (Sin Comisión)">
+              <div className="absolute top-1 left-1 bg-white/20 p-1 rounded-full" title="Dulcería">
                 <Candy size={12} className="text-white"/>
               </div>
             )}
+            {isBulk && (
+              <div className="absolute top-1 left-1 bg-white/20 p-1 rounded-full" title="Granel">
+                <Wheat size={12} className="text-white"/>
+              </div>
+            )}
 
-            {/* Botón Editar (Solo Admin) */}
+            {/* Botón Editar */}
             {isAdmin && (
               <button 
                 onClick={(e) => { e.stopPropagation(); onEdit(p); }} 
@@ -174,15 +180,30 @@
             <form onSubmit={submit} className="space-y-3">
               {/* Selector de Categoría */}
               <div className="bg-gray-50 p-2 rounded-lg border border-gray-200">
-                <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Tipo de Producto</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
+                <label className="text-[10px] font-bold text-gray-500 uppercase mb-2 block">Tipo de Comisión</label>
+                <div className="flex gap-2 justify-between">
+                  <label className="flex items-center gap-1 cursor-pointer bg-white px-2 py-1 rounded border">
                     <input type="radio" name="cat" value="general" defaultChecked={!p?.category || p?.category === 'general'} className="accent-blue-600 w-4 h-4"/>
-                    <span className="text-sm font-bold text-gray-700">Abarrotes (Comisión)</span>
+                    <div className="flex flex-col leading-none">
+                      <span className="text-xs font-bold text-gray-700">Abarrotes</span>
+                      <span className="text-[9px] text-gray-400">Com: $1.00</span>
+                    </div>
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  
+                  <label className="flex items-center gap-1 cursor-pointer bg-white px-2 py-1 rounded border">
+                    <input type="radio" name="cat" value="granel" defaultChecked={p?.category === 'granel'} className="accent-yellow-600 w-4 h-4"/>
+                    <div className="flex flex-col leading-none">
+                      <span className="text-xs font-bold text-yellow-700 flex items-center gap-1"><Wheat size={10}/> Granel</span>
+                      <span className="text-[9px] text-gray-400">Com: $0.50</span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center gap-1 cursor-pointer bg-white px-2 py-1 rounded border">
                     <input type="radio" name="cat" value="dulceria" defaultChecked={p?.category === 'dulceria'} className="accent-pink-500 w-4 h-4"/>
-                    <span className="text-sm font-bold text-pink-600 flex items-center gap-1"><Candy size={12}/> Dulcería (Sin Com.)</span>
+                    <div className="flex flex-col leading-none">
+                      <span className="text-xs font-bold text-pink-600 flex items-center gap-1"><Candy size={10}/> Dulces</span>
+                      <span className="text-[9px] text-gray-400">Com: $0.00</span>
+                    </div>
                   </label>
                 </div>
               </div>
@@ -284,12 +305,12 @@
         saleData.forEach(i => {
           batch.update(doc(db, 'tiendas', STORE_ID, 'productos', i.id), { stock: (i.stock || 0) - i.q });
           
-          // Guardamos la categoría en la venta para saber si cobra comisión o no
+          // Guardamos la categoría en la venta
           batch.set(doc(collection(db, 'tiendas', STORE_ID, 'ventas')), { 
             name: i.name, 
             quantitySold: i.q, 
             totalRevenue: i.price * i.q, 
-            category: i.category || 'general', // Guardamos la categoría
+            category: i.category || 'general', 
             date: new Date().toISOString() 
           });
         });
@@ -337,13 +358,21 @@
       const download = () => {
         const d = new Date();
         const tot = sales.reduce((a, b) => a + b.totalRevenue, 0);
-        // Solo sumamos comisión si NO es dulcería
-        const com = sales.reduce((a, b) => a + (b.category === 'dulceria' ? 0 : b.quantitySold), 0);
+        
+        // CÁLCULO DE COMISIÓN ACTUALIZADO
+        const com = sales.reduce((acc, s) => {
+          if (s.category === 'dulceria') return acc;
+          if (s.category === 'granel') return acc + (s.quantitySold * 0.5); // $0.50 por pza/kg
+          return acc + s.quantitySold; // $1.00 por pza normal
+        }, 0);
         
         let t = `CORTE TIENDA HOJA\nFECHA: ${d.toLocaleDateString()}\n----------------\nTOTAL VENDIDO: $${tot.toFixed(2)}\nCOMISIÓN: $${com.toFixed(2)}\n----------------\nDETALLES:\n`;
         
         sales.forEach(s => {
-            const tipo = s.category === 'dulceria' ? '(DULCE)' : '';
+            let tipo = '';
+            if(s.category === 'dulceria') tipo = '(DULCE)';
+            if(s.category === 'granel') tipo = '(GRANEL)';
+            
             t += `• ${s.name} ${tipo} x${s.quantitySold} .. $${s.totalRevenue}\n`;
         });
         
@@ -354,10 +383,11 @@
       const total = cart.reduce((a, b) => a + (b.price * b.q), 0);
       const change = pay ? parseFloat(pay) - total : 0;
       
-      // Cálculo de Comisión para el Dashboard (Excluyendo dulcería)
+      // Cálculo de Comisión para la Pantalla
       const totalCommission = sales.reduce((acc, sale) => {
-          if (sale.category === 'dulceria') return acc; // Si es dulce, no suma comisión
-          return acc + sale.quantitySold; // Si es abarrotes, suma 1 por producto
+          if (sale.category === 'dulceria') return acc;
+          if (sale.category === 'granel') return acc + (sale.quantitySold * 0.5);
+          return acc + sale.quantitySold;
       }, 0);
 
       if (!user) return <div className="h-screen flex items-center justify-center bg-blue-900 text-white"><Loader className="animate-spin"/></div>;
@@ -399,14 +429,7 @@
                     {filtered.map(p => {
                       const inCart = cart.find(x => x.id === p.id)?.q || 0;
                       return (
-                        <ProductCard 
-                          key={p.id} 
-                          p={p} 
-                          onEdit={(prod) => { setEditP(prod); setModal(true); }} 
-                          isAdmin={admin} 
-                          inCart={inCart}
-                          onClick={() => !admin && addCart(p)}
-                        />
+                        <ProductCard key={p.id} p={p} onClick={() => !admin && addCart(p)} onEdit={setEditP} isAdmin={admin} inCart={inCart} />
                       );
                     })}
                   </div>
@@ -416,10 +439,9 @@
                   <h2 className="text-2xl font-bold text-slate-800">Corte del Día</h2>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-blue-500"><p className="text-xs font-bold text-gray-400">TOTAL</p><p className="text-2xl font-black text-slate-900">${sales.reduce((a, b) => a + b.totalRevenue, 0).toFixed(2)}</p></div>
-                    {/* Aquí usamos el cálculo especial de comisión */}
-                    <div className="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-green-500"><p className="text-xs font-bold text-gray-400">COMISIÓN</p><p className="text-2xl font-black text-green-600">${totalCommission}</p></div>
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-green-500"><p className="text-xs font-bold text-gray-400">COMISIÓN</p><p className="text-2xl font-black text-green-600">${totalCommission.toFixed(2)}</p></div>
                   </div>
-                  <div className="bg-white rounded-2xl shadow overflow-hidden"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">Prod</th><th className="p-3 text-center">Cant</th><th className="p-3 text-right">$$</th></tr></thead><tbody>{sales.map((s,i)=>(<tr key={i} className="border-t"><td className="p-3">{s.name} {s.category==='dulceria' && '🍬'}</td><td className="p-3 text-center">{s.quantitySold}</td><td className="p-3 text-right font-bold">${s.totalRevenue}</td></tr>))}</tbody></table></div>
+                  <div className="bg-white rounded-2xl shadow overflow-hidden"><table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-left">Prod</th><th className="p-3 text-center">Cant</th><th className="p-3 text-right">$$</th></tr></thead><tbody>{sales.map((s,i)=>(<tr key={i} className="border-t"><td className="p-3">{s.name} {s.category==='dulceria' && '🍬'} {s.category==='granel' && '🌾'}</td><td className="p-3 text-center">{s.quantitySold}</td><td className="p-3 text-right font-bold">${s.totalRevenue}</td></tr>))}</tbody></table></div>
                   <div className="flex gap-2">
                     <button onClick={download} className="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold shadow active:scale-95">Descargar</button>
                     <button onClick={closeDay} className={`flex-1 py-3 rounded-xl font-bold shadow active:scale-95 transition-all ${confirmClose ? 'bg-red-600 text-white' : 'bg-red-100 text-red-600'}`}>{confirmClose ? '¿CONFIRMAR?' : 'Cerrar Corte'}</button>
