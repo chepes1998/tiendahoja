@@ -103,21 +103,25 @@
             
             {/* Iconos de Categoría */}
             {isCandy && (
-              <div className="absolute top-1 left-1 bg-white/20 p-1 rounded-full" title="Dulcería">
+              <div className="absolute top-1 left-1 bg-white/20 p-1 rounded-full pointer-events-none" title="Dulcería">
                 <Candy size={12} className="text-white"/>
               </div>
             )}
             {isBulk && (
-              <div className="absolute top-1 left-1 bg-white/20 p-1 rounded-full" title="Granel">
+              <div className="absolute top-1 left-1 bg-white/20 p-1 rounded-full pointer-events-none" title="Granel">
                 <Wheat size={12} className="text-white"/>
               </div>
             )}
 
-            {/* Botón Editar */}
+            {/* Botón Editar (REPARADO: Z-INDEX ALTO Y FONDO BLANCO) */}
             {isAdmin && (
               <button 
-                onClick={(e) => { e.stopPropagation(); onEdit(p); }} 
-                className="absolute top-1 right-1 bg-black/20 hover:bg-white hover:text-blue-600 p-2 rounded-full text-white transition-colors z-10 shadow-sm"
+                onClick={(e) => { 
+                  e.preventDefault(); 
+                  e.stopPropagation(); 
+                  onEdit(p); 
+                }} 
+                className="absolute top-1 right-1 bg-white text-blue-600 p-2 rounded-lg shadow-md z-50 active:scale-90 transition-transform"
               >
                 <Edit2 size={16} />
               </button>
@@ -156,7 +160,7 @@
           name: d.get('n'), 
           price: isNaN(priceVal) ? 0 : priceVal, 
           stock: isNaN(stockVal) ? 0 : stockVal,
-          category: d.get('cat') // Guardamos la categoría
+          category: d.get('cat')
         }); 
       };
 
@@ -178,31 +182,32 @@
               <button onClick={close} className="p-2 bg-gray-100 rounded-full"><X size={18}/></button>
             </div>
             <form onSubmit={submit} className="space-y-3">
+              
               {/* Selector de Categoría */}
-              <div className="bg-gray-50 p-2 rounded-lg border border-gray-200">
-                <label className="text-[10px] font-bold text-gray-500 uppercase mb-2 block">Tipo de Comisión</label>
-                <div className="flex gap-2 justify-between">
-                  <label className="flex items-center gap-1 cursor-pointer bg-white px-2 py-1 rounded border">
-                    <input type="radio" name="cat" value="general" defaultChecked={!p?.category || p?.category === 'general'} className="accent-blue-600 w-4 h-4"/>
-                    <div className="flex flex-col leading-none">
+              <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
+                <label className="text-[10px] font-bold text-gray-500 uppercase mb-2 block">Tipo de Producto (Comisión)</label>
+                <div className="flex justify-between gap-2">
+                  <label className="flex-1 flex items-center gap-2 cursor-pointer bg-white p-2 rounded border border-gray-200 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+                    <input type="radio" name="cat" value="general" defaultChecked={!p?.category || p?.category === 'general'} className="accent-blue-600"/>
+                    <div className="flex flex-col">
                       <span className="text-xs font-bold text-gray-700">Abarrotes</span>
-                      <span className="text-[9px] text-gray-400">Com: $1.00</span>
+                      <span className="text-[9px] text-gray-400">$1.00</span>
                     </div>
                   </label>
                   
-                  <label className="flex items-center gap-1 cursor-pointer bg-white px-2 py-1 rounded border">
-                    <input type="radio" name="cat" value="granel" defaultChecked={p?.category === 'granel'} className="accent-yellow-600 w-4 h-4"/>
-                    <div className="flex flex-col leading-none">
-                      <span className="text-xs font-bold text-yellow-700 flex items-center gap-1"><Wheat size={10}/> Granel</span>
-                      <span className="text-[9px] text-gray-400">Com: $0.50</span>
+                  <label className="flex-1 flex items-center gap-2 cursor-pointer bg-white p-2 rounded border border-gray-200 has-[:checked]:border-yellow-500 has-[:checked]:bg-yellow-50">
+                    <input type="radio" name="cat" value="granel" defaultChecked={p?.category === 'granel'} className="accent-yellow-600"/>
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold text-yellow-700">Granel</span>
+                      <span className="text-[9px] text-gray-400">$0.50</span>
                     </div>
                   </label>
 
-                  <label className="flex items-center gap-1 cursor-pointer bg-white px-2 py-1 rounded border">
-                    <input type="radio" name="cat" value="dulceria" defaultChecked={p?.category === 'dulceria'} className="accent-pink-500 w-4 h-4"/>
-                    <div className="flex flex-col leading-none">
-                      <span className="text-xs font-bold text-pink-600 flex items-center gap-1"><Candy size={10}/> Dulces</span>
-                      <span className="text-[9px] text-gray-400">Com: $0.00</span>
+                  <label className="flex-1 flex items-center gap-2 cursor-pointer bg-white p-2 rounded border border-gray-200 has-[:checked]:border-pink-500 has-[:checked]:bg-pink-50">
+                    <input type="radio" name="cat" value="dulceria" defaultChecked={p?.category === 'dulceria'} className="accent-pink-500"/>
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold text-pink-600">Dulces</span>
+                      <span className="text-[9px] text-gray-400">$0.00</span>
                     </div>
                   </label>
                 </div>
@@ -304,8 +309,6 @@
         const batch = writeBatch(db);
         saleData.forEach(i => {
           batch.update(doc(db, 'tiendas', STORE_ID, 'productos', i.id), { stock: (i.stock || 0) - i.q });
-          
-          // Guardamos la categoría en la venta
           batch.set(doc(collection(db, 'tiendas', STORE_ID, 'ventas')), { 
             name: i.name, 
             quantitySold: i.q, 
@@ -322,7 +325,6 @@
         setProc(true);
         try {
           const ref = collection(db, 'tiendas', STORE_ID, 'productos');
-          // Guardamos la categoría también
           const data = { name: d.name, price: d.price, stock: d.stock, category: d.category };
           if (d.id) await updateDoc(doc(ref, d.id), data);
           else await addDoc(ref, data);
@@ -359,11 +361,11 @@
         const d = new Date();
         const tot = sales.reduce((a, b) => a + b.totalRevenue, 0);
         
-        // CÁLCULO DE COMISIÓN ACTUALIZADO
+        // CÁLCULO DE COMISIÓN (GRANEL $0.50)
         const com = sales.reduce((acc, s) => {
           if (s.category === 'dulceria') return acc;
-          if (s.category === 'granel') return acc + (s.quantitySold * 0.5); // $0.50 por pza/kg
-          return acc + s.quantitySold; // $1.00 por pza normal
+          if (s.category === 'granel') return acc + (s.quantitySold * 0.5);
+          return acc + s.quantitySold;
         }, 0);
         
         let t = `CORTE TIENDA HOJA\nFECHA: ${d.toLocaleDateString()}\n----------------\nTOTAL VENDIDO: $${tot.toFixed(2)}\nCOMISIÓN: $${com.toFixed(2)}\n----------------\nDETALLES:\n`;
@@ -372,7 +374,6 @@
             let tipo = '';
             if(s.category === 'dulceria') tipo = '(DULCE)';
             if(s.category === 'granel') tipo = '(GRANEL)';
-            
             t += `• ${s.name} ${tipo} x${s.quantitySold} .. $${s.totalRevenue}\n`;
         });
         
@@ -383,7 +384,6 @@
       const total = cart.reduce((a, b) => a + (b.price * b.q), 0);
       const change = pay ? parseFloat(pay) - total : 0;
       
-      // Cálculo de Comisión para la Pantalla
       const totalCommission = sales.reduce((acc, sale) => {
           if (sale.category === 'dulceria') return acc;
           if (sale.category === 'granel') return acc + (sale.quantitySold * 0.5);
@@ -399,7 +399,6 @@
           {/* --- PANEL IZQUIERDO (CATÁLOGO) --- */}
           <div className="flex-1 flex flex-col h-full overflow-hidden relative">
             
-            {/* Header AZUL */}
             <header className="bg-blue-900 text-white p-3 shadow-sm z-20 flex justify-between items-center shrink-0 border-b">
               <div className="flex items-center gap-2 cursor-pointer" onClick={() => setView('pos')}>
                 <div className="bg-orange-500 p-1 rounded-lg"><Leaf size={18} className="text-white"/></div>
@@ -412,7 +411,6 @@
               </div>
             </header>
 
-            {/* Buscador + Catálogo (Fondo Naranja) */}
             <main className="flex-1 overflow-y-auto p-3 relative bg-orange-50">
               {view === 'pos' ? (
                 <>
@@ -429,7 +427,14 @@
                     {filtered.map(p => {
                       const inCart = cart.find(x => x.id === p.id)?.q || 0;
                       return (
-                        <ProductCard key={p.id} p={p} onClick={() => !admin && addCart(p)} onEdit={setEditP} isAdmin={admin} inCart={inCart} />
+                        <ProductCard 
+                          key={p.id} 
+                          p={p} 
+                          onEdit={(prod) => { setEditP(prod); setModal(true); }} 
+                          isAdmin={admin} 
+                          inCart={inCart}
+                          onClick={() => !admin && addCart(p)}
+                        />
                       );
                     })}
                   </div>
